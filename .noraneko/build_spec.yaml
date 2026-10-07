@@ -1,0 +1,36 @@
+version: 0.1
+component: build
+timeoutInSeconds: 3600
+shell: bash
+failImmediatelyOnError: true
+env:
+  exportedVariables:
+    - BUILDRUN_HASH
+    - APP_VERSION
+    - BUILD_NUMBER
+    - IMAGE_TAG
+steps:
+  - type: Command
+    name: Build arm64 artex image
+    command: |
+      set -euo pipefail
+      export BUILDRUN_HASH="${OCI_PRIMARY_SOURCE_COMMIT_HASH}"
+      export APP_VERSION="$(cat VERSION)"
+      # Tag time is this run's real start (minute precision), never the wall clock.
+      read -r started compartment <<<"$(oci devops build-run get --build-run-id "$OCI_BUILD_RUN_ID" \
+        --query 'join('"'"' '"'"', [data."build-run-progress"."time-started", data."compartment-id"])' --raw-output)"
+      [[ "$started" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|\+00:00)$ ]] || exit 1
+      [[ "$compartment" =~ ^ocid1\.compartment\. ]] || exit 1
+      export BUILD_NUMBER="${started:0:4}${started:5:2}${started:8:2}${started:11:2}${started:14:2}"
+      export IMAGE_TAG="${APP_VERSION}-build.${BUILD_NUMBER}"
+      # Never publish over an existing repo:tag. OCIR_REPOSITORY is a build pipeline parameter.
+      test -n "$OCIR_REPOSITORY"
+      existing="$(oci artifacts container image list --compartment-id "$compartment" \
+        --repository-name "$OCIR_REPOSITORY" --display-name "${OCIR_REPOSITORY}:${IMAGE_TAG}" --query 'length(data.items)' --raw-output)"
+      [[ "$existing" =~ ^[0-9]+$ ]] || { echo "OCIR image list returned no count: '${existing}'" >&2; exit 1; }
+      [[ "$existing" = "0" ]] || { echo "image tag ${OCIR_REPOSITORY}:${IMAGE_TAG} already exists" >&2; exit 1; }
+      bash .noraneko/ci.sh
+outputArtifacts:
+  - name: service-image
+    type: DOCKER_IMAGE
+    location: service-image

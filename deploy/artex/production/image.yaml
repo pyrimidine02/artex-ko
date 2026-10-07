@@ -1,0 +1,6 @@
+# sourceCommit: TODO
+# 첫 빌드가 digest 를 채운다(.noraneko/ci.sh publish). 그 전까진 enabled:false 라 배포 안 함.
+image:
+  repository: yny.ocir.io/axbhyh1fdkqm/noraneko/artex
+  tag: "0000000000000000000000000000000000000000"
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

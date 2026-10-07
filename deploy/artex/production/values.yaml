@@ -1,0 +1,53 @@
+# Chart: helm/noraneko-service (infra-platform). artex production (D-023).
+# 첫 빌드가 image.yaml 에 실제 digest 를 채운 뒤 enabled 를 true 로 올린다.
+# 그 전엔 플레이스홀더 이미지라 enabled:true 로 두면 차트 render 가 실패한다.
+enabled: false
+nameOverride: artex
+partOf: artex
+replicaCount: 1
+releaseVersion: 0.1.0
+containerPort: 8787
+nodeSelector:
+  noraneko.cc/member: anon
+health:
+  startupPath: /api/health
+  readinessPath: /api/health
+  livenessPath: /api/health
+  startupFailureThreshold: 60
+  startupPeriodSeconds: 5
+# ARTEX_PG_DSN 는 Vault->ESO Secret artex-runtime 에서 온다. LLM 키는 넣지 않고 UI 에서 설정.
+env: {}
+envFrom:
+- secretRef:
+    name: artex-runtime
+# /app/data: jwt.key + 로컬 SQLite 저장소. 재시작·재스케줄에도 남도록 PVC 로 영속한다(D-023).
+writableDirectories: []
+dataPersistence:
+  enabled: true
+  mountPath: /app/data
+  storageClass: oci-bv-retain
+  size: 50Gi
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+# 차트 내장 PostgreSQL. username/password/database 는 같은 Secret artex-runtime 에서 읽는다.
+postgres:
+  enabled: true
+  image: docker.io/library/postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+  existingSecret: artex-runtime
+  secretKeys:
+    username: username
+    password: password
+    database: database
+  persistence:
+    storageClass: oci-bv-retain
+    size: 50Gi
+redis:
+  enabled: false
+# artex 는 FLB 가 아니라 Cloudflare Tunnel 로 들어온다. 차트 Ingress 는 끈다.
+ingress:
+  enabled: false

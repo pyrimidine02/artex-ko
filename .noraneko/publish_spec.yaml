@@ -1,0 +1,23 @@
+version: 0.1
+component: build
+timeoutInSeconds: 600
+shell: bash
+env:
+  vaultVariables:
+    # DevOps GitHub connection PAT (needs contents:write on this repo). Same secret as oshilog-api.
+    GITHUB_TOKEN: ocid1.vaultsecret.oc1.ap-chuncheon-1.amaaaaaakdd3moqac5wnbcgqhhfersgvcuywb23my22qvl7372k6dr257kla
+failImmediatelyOnError: true
+steps:
+  - type: Command
+    name: Publish image pointer to app repo (DEPLOY_ENV pipeline parameter)
+    command: |
+      set -euo pipefail
+      export OCIR_REPOSITORY IMAGE_TAG BUILDRUN_HASH
+      export DEPLOY_ENV="${DEPLOY_ENV:-production}"
+      OCI_COMPARTMENT_ID="$(oci devops build-run get --build-run-id "$OCI_BUILD_RUN_ID" --query 'data."compartment-id"' --raw-output)"
+      export OCI_COMPARTMENT_ID
+      export DEPLOY_IMAGE_REPOSITORY="yny.ocir.io/axbhyh1fdkqm/${OCIR_REPOSITORY}"
+      export GITHUB_TOKEN
+      export DEPLOY_SVC=artex
+      export DEPLOY_REPO_URL=https://github.com/pyrimidine02/artex-ko.git
+      bash .noraneko/ci.sh publish
