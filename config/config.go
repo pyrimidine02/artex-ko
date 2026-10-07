@@ -40,6 +40,24 @@ type Config struct {
 // (cache hit → run from $GOCACHE/.../...-d). We detect both and fall back to the
 // current working directory so dev artifacts (data/, transcripts) and config
 // resolve against the project dir, not the throwaway binary's location.
+// KeyDir is where the JWT signing key lives: env ARTEX_KEY_DIR, else BaseDir().
+// Set it when the executable's directory is read-only (container with a
+// read-only root filesystem). It must stay outside the browsable data dir.
+func KeyDir() string {
+	if v := strings.TrimSpace(os.Getenv("ARTEX_KEY_DIR")); v != "" {
+		return v
+	}
+	return BaseDir()
+}
+
+// DataDir is the default for -data: env ARTEX_DATA_DIR, else BaseDir()/data.
+func DataDir() string {
+	if v := strings.TrimSpace(os.Getenv("ARTEX_DATA_DIR")); v != "" {
+		return v
+	}
+	return filepath.Join(BaseDir(), "data")
+}
+
 func BaseDir() string {
 	exe, err := os.Executable()
 	if err != nil {

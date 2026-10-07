@@ -16,15 +16,19 @@ health:
   startupFailureThreshold: 60
   startupPeriodSeconds: 5
 # ARTEX_PG_DSN 는 Vault->ESO Secret artex-runtime 에서 온다. LLM 키는 넣지 않고 UI 에서 설정.
-env: {}
+# 루트 파일시스템이 읽기 전용이라 jwt.key 와 데이터는 PVC(/app/state)에 둔다.
+# jwt.key 는 파일 관리자로 열람되는 데이터 디렉터리 밖(/app/state)에 있어야 한다.
+env:
+  ARTEX_KEY_DIR: /app/state
+  ARTEX_DATA_DIR: /app/state/data
 envFrom:
 - secretRef:
     name: artex-runtime
-# /app/data: jwt.key + 로컬 SQLite 저장소. 재시작·재스케줄에도 남도록 PVC 로 영속한다(D-023).
+# /app/state: jwt.key + data/(로컬 SQLite 저장소). 재시작·재스케줄에도 남도록 PVC 로 영속한다(D-023).
 writableDirectories: []
 dataPersistence:
   enabled: true
-  mountPath: /app/data
+  mountPath: /app/state
   storageClass: oci-bv-retain
   size: 50Gi
 resources:
