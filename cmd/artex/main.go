@@ -53,7 +53,7 @@ func main() {
 func run() int {
 	var (
 		addr    = flag.String("addr", ":8787", "HTTP listen address")
-		dataDir = flag.String("data", filepath.Join(config.BaseDir(), "data"), "data directory for SQLite stores (default: data/ next to the executable)")
+		dataDir = flag.String("data", config.DataDir(), "data directory for SQLite stores (default: $ARTEX_DATA_DIR or data/ next to the executable)")
 		proxy   = flag.String("proxy", "127.0.0.1:8788", "traffic recording proxy address (empty to disable)")
 	)
 	flag.Parse()
@@ -112,7 +112,7 @@ func run() int {
 		skillDir = abs
 	}
 	log.Printf("[config] skill 目录: %s", skillDir)
-	srv := server.New(ctx, mgr, skillDir, *dataDir, config.BaseDir())
+	srv := server.New(ctx, mgr, skillDir, *dataDir, config.KeyDir())
 	httpSrv := &http.Server{
 		Addr:              *addr,
 		Handler:           srv.Handler(),
