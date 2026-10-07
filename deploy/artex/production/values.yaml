@@ -1,7 +1,7 @@
 # Chart: helm/noraneko-service (infra-platform). artex production (D-023).
 # 첫 빌드가 image.yaml 에 실제 digest 를 채운 뒤 enabled 를 true 로 올린다.
 # 그 전엔 플레이스홀더 이미지라 enabled:true 로 두면 차트 render 가 실패한다.
-enabled: false
+enabled: true
 nameOverride: artex
 partOf: artex
 replicaCount: 1
