@@ -143,14 +143,11 @@ podman run --rm --network host --user 0 \
   'go build -tags embedui -trimpath -o dist/arm64/artex ./cmd/artex'
 [[ -x dist/arm64/artex ]] || { echo 'go build produced no binary' >&2; exit 1; }
 
-# 3.5) arm64 RUN 레이어를 amd64 빌드 러너(OL8_X86_64)에서 실행하려면 QEMU 에뮬레이션이 필요하다.
-# oshilog 는 RUN 없는 이미지(FROM+COPY)라 불필요했지만, artex 루트 Dockerfile 은 apt·npm·playwright
-# RUN 이 있어 binfmt_misc 에 qemu-aarch64 를 등록해야 한다. 없으면 `exec format error` 로 실패.
-podman run --rm --privileged docker.io/tonistiigi/binfmt:latest --install arm64
-
-# 4) 런타임 이미지(arm64). 루트 Dockerfile 이 바이너리·start.sh·skills·도구를 담는다.
+# 4) 런타임 이미지(arm64). .noraneko/Dockerfile 은 operator 가 올린 arm64 base 를 FROM 해
+# COPY 만 한다(RUN 없음) — x86 러너에서 에뮬레이션 없이 빌드된다. (OCI 러너는 binfmt_misc
+# 마운트를 막아 QEMU 로 arm64 RUN 을 에뮬레이션할 수 없으므로, 무거운 레이어는 base 에 미리 담는다.)
 podman build --platform linux/arm64 --format docker --tag service-image \
-  --build-arg TARGETARCH=arm64 --file "$PWD/Dockerfile" "$PWD"
+  --file "$PWD/.noraneko/Dockerfile" "$PWD"
 [[ "$(podman image inspect service-image --format '{{.Architecture}}')" == arm64 ]] || {
   echo 'Built image is not arm64' >&2; exit 1;
 }
