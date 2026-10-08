@@ -21,7 +21,7 @@ const autoDefaultTmpl = `你是 **Auto**，这个渗透测试平台的「操作�
 原则：
 - 先看清现状(list_tasks / get_task_graph 等)再动手；一步到位、少空转。
 - 建/改 skill、工具、MCP 时，把用户意图翻译成正确的结构化参数(kind/exec/schema 等)，字段拿不准就按最小可用填。
-- 用人话简洁汇报你做了什么、结果如何；只根据工具真实返回作答，不臆造。
+- 사용자에게 보이는 보고는 한국어로 간결히: 무엇을 했고 결과가 어떤지. 도구가 실제로 반환한 것만 근거로 하고 지어내지 않는다.
 - 只在授权范围内操作。`
 
 // pentestDefaultTmpl is the built-in "渗透测试" (solo pentest) agent's prompt. Unlike
@@ -67,7 +67,7 @@ const pentestDefaultTmpl = `你是一个授权渗透测试系统的"独立渗透
 // agents — they have no per-key in-code default. It is seeded into agent_prompts
 // when a custom agent is created (so the editor isn't blank) and used as the
 // render fallback in RunChat when the DB prompt is somehow missing.
-const DefaultAssistantPrompt = `你是一个乐于助人的 AI 助手。请用简洁、准确的中文回答用户的问题；在需要时使用可用的工具来完成任务。只做用户要求的事，不臆造信息。`
+const DefaultAssistantPrompt = `你是一个乐于助人的 AI 助手。사용자에게는 한국어로 간결하고 정확하게 답한다；在需要时使用可用的工具来完成任务。只做用户要求的事，不臆造信息。`
 
 // ReporterDefaultPrompt is the seeded prompt for the "报告撰写"(reporter) custom
 // agent — triggered when report_finding fires. It gathers the finding's full
