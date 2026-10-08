@@ -19,6 +19,8 @@ health:
 # 루트 파일시스템이 읽기 전용이라 jwt.key 와 데이터는 PVC(/app/state)에 둔다.
 # jwt.key 는 파일 관리자로 열람되는 데이터 디렉터리 밖(/app/state)에 있어야 한다.
 env:
+  # Go 의 time.Local 과 로그 타임스탬프를 KST 로. DB(timestamptz)는 이미 +09.
+  TZ: Asia/Seoul
   ARTEX_KEY_DIR: /app/state
   ARTEX_DATA_DIR: /app/state/data
 envFrom:
