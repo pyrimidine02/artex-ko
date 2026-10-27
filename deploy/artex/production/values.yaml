@@ -33,6 +33,7 @@ dataPersistence:
   mountPath: /app/state
   storageClass: oci-bv-retain
   size: 50Gi
+  sharedWithPostgres: true
 resources:
   requests:
     cpu: 100m
