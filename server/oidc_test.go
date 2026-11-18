@@ -20,11 +20,11 @@ import (
 // fakeIdP is a minimal OIDC provider: discovery, JWKS and a token endpoint that
 // checks PKCE and returns an RS256 ID token carrying the nonce from /authorize.
 type fakeIdP struct {
-	srv           *httptest.Server
-	key           *rsa.PrivateKey
-	nonce, chall  string
-	email         string
-	emailVerified any
+	srv          *httptest.Server
+	key          *rsa.PrivateKey
+	nonce, chall string
+	email        string
+	roles        any
 }
 
 func newFakeIdP(t *testing.T) *fakeIdP {
@@ -33,7 +33,7 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fakeIdP{key: k, email: "ops@noraneko.cc", emailVerified: true}
+	f := &fakeIdP{key: k, email: "ops@noraneko.cc", roles: []string{"viewer", "artex"}}
 	mux := http.NewServeMux()
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
@@ -60,7 +60,7 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 		}
 		claims := jwt.MapClaims{
 			"iss": f.srv.URL, "aud": "artex", "sub": "user-1", "nonce": f.nonce,
-			"email": f.email, "email_verified": f.emailVerified,
+			"email": f.email, "roles": f.roles,
 			"iat": time.Now().Unix(), "exp": time.Now().Add(time.Hour).Unix(),
 		}
 		tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
@@ -81,7 +81,8 @@ func oidcTestServer(t *testing.T, issuer string) *Server {
 	t.Setenv("ARTEX_OIDC_CLIENT_ID", "artex")
 	t.Setenv("ARTEX_OIDC_CLIENT_SECRET", "secret")
 	t.Setenv("ARTEX_OIDC_REDIRECT_URL", "https://artex.example/api/auth/oidc/callback")
-	t.Setenv("ARTEX_OIDC_ALLOWED_EMAILS", "Ops@Noraneko.cc, admin@noraneko.cc")
+	t.Setenv("ARTEX_OIDC_REQUIRED_ROLE", "artex")
+	t.Setenv("ARTEX_OIDC_ROLES_CLAIM", "")
 	oidcMu.Lock()
 	oidcCached = nil
 	oidcMu.Unlock()
@@ -139,10 +140,10 @@ func TestOIDCRejects(t *testing.T) {
 		cookie bool
 		want   string
 	}{
-		{"email not on allowlist", func(f *fakeIdP) { f.email = "intruder@example.com" }, nil, true, "forbidden"},
-		{"email not verified", func(f *fakeIdP) { f.emailVerified = false }, nil, true, "forbidden"},
-		{"email_verified claim missing", func(f *fakeIdP) { f.emailVerified = nil }, nil, true, "forbidden"},
-		{"non-ASCII lookalike", func(f *fakeIdP) { f.email = "ops@norane\u212Ao.cc" }, nil, true, "forbidden"},
+		{"role not granted", func(f *fakeIdP) { f.roles = []string{"viewer"} }, nil, true, "forbidden"},
+		{"no roles claim", func(f *fakeIdP) { f.roles = nil }, nil, true, "forbidden"},
+		{"role differs in case", func(f *fakeIdP) { f.roles = []string{"ARTEX"} }, nil, true, "forbidden"},
+		{"role as a single string", func(f *fakeIdP) { f.roles = "artex-admin" }, nil, true, "forbidden"},
 		{"state mismatch", nil, func(string) string { return "other" }, true, "state"},
 		{"no flow cookie", nil, nil, false, "state"},
 		{"wrong nonce", func(f *fakeIdP) { f.nonce = "replayed" }, nil, true, "token"},

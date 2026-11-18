@@ -10,7 +10,11 @@ package server
 //   ARTEX_OIDC_CLIENT_ID
 //   ARTEX_OIDC_CLIENT_SECRET
 //   ARTEX_OIDC_REDIRECT_URL    e.g. https://artex.noraneko.cc/api/auth/oidc/callback
-//   ARTEX_OIDC_ALLOWED_EMAILS  comma-separated; only these verified emails may sign in
+//   ARTEX_OIDC_REQUIRED_ROLE   role the SSO must grant, e.g. artex
+//   ARTEX_OIDC_ROLES_CLAIM     ID token claim holding the roles (default "roles")
+//
+// Who may sign in is managed in the SSO, not here: the provider puts the user's
+// roles into the ID token, and only a token carrying the required role opens a session.
 
 import (
 	"context"
@@ -41,7 +45,7 @@ const (
 
 type oidcConfig struct {
 	issuer, clientID, clientSecret, redirectURL string
-	allowed                                     map[string]bool
+	requiredRole, rolesClaim                    string
 }
 
 func oidcConfigFromEnv() (oidcConfig, error) {
@@ -50,15 +54,14 @@ func oidcConfigFromEnv() (oidcConfig, error) {
 		clientID:     strings.TrimSpace(os.Getenv("ARTEX_OIDC_CLIENT_ID")),
 		clientSecret: strings.TrimSpace(os.Getenv("ARTEX_OIDC_CLIENT_SECRET")),
 		redirectURL:  strings.TrimSpace(os.Getenv("ARTEX_OIDC_REDIRECT_URL")),
-		allowed:      map[string]bool{},
+		requiredRole: strings.TrimSpace(os.Getenv("ARTEX_OIDC_REQUIRED_ROLE")),
+		rolesClaim:   strings.TrimSpace(os.Getenv("ARTEX_OIDC_ROLES_CLAIM")),
 	}
-	for _, e := range strings.Split(os.Getenv("ARTEX_OIDC_ALLOWED_EMAILS"), ",") {
-		if e = strings.ToLower(strings.TrimSpace(e)); e != "" {
-			c.allowed[e] = true
-		}
+	if c.rolesClaim == "" {
+		c.rolesClaim = "roles"
 	}
-	if c.issuer == "" || c.clientID == "" || c.clientSecret == "" || c.redirectURL == "" || len(c.allowed) == 0 {
-		return c, errors.New("ARTEX_OIDC_ISSUER, _CLIENT_ID, _CLIENT_SECRET, _REDIRECT_URL and _ALLOWED_EMAILS must all be set")
+	if c.issuer == "" || c.clientID == "" || c.clientSecret == "" || c.redirectURL == "" || c.requiredRole == "" {
+		return c, errors.New("ARTEX_OIDC_ISSUER, _CLIENT_ID, _CLIENT_SECRET, _REDIRECT_URL and _REQUIRED_ROLE must all be set")
 	}
 	return c, nil
 }
@@ -102,7 +105,7 @@ func getOIDCClient(ctx context.Context) (*oidcClient, error) {
 			ClientSecret: cfg.clientSecret,
 			RedirectURL:  cfg.redirectURL,
 			Endpoint:     p.Endpoint(),
-			Scopes:       []string{oidc.ScopeOpenID, "email"},
+			Scopes:       []string{oidc.ScopeOpenID, "email", "roles"},
 		},
 		verifier: p.Verifier(&oidc.Config{ClientID: cfg.clientID}),
 	}
@@ -132,15 +135,6 @@ func (s *Server) sessionHash() (string, error) {
 		return "", err
 	}
 	return s.reloadPassHash()
-}
-
-func isASCII(v string) bool {
-	for i := 0; i < len(v); i++ {
-		if v[i] >= 0x80 {
-			return false
-		}
-	}
-	return true
 }
 
 // noStore keeps auth redirects (one carries the session token) out of caches and
@@ -230,7 +224,7 @@ func (s *Server) oidcStart(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /api/auth/oidc/callback — checks state, exchanges the code, verifies the ID
-// token and the email allowlist, then hands the session token to the login page in
+// token and the role the SSO granted, then hands the session token to the login page in
 // the URL fragment (never sent to a server, so it stays out of access logs).
 func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), oidcTimeout)
@@ -270,24 +264,18 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		oidcFail(w, r, "token", errors.New("nonce mismatch"))
 		return
 	}
-	var claims struct {
-		Email         string `json:"email"`
-		EmailVerified *bool  `json:"email_verified"`
-	}
+	// The SSO decides who may use ARTEX by granting the role; this only checks the
+	// signed claim. An exact, case-sensitive match on a claim the provider controls.
+	var claims map[string]any
 	if err := idt.Claims(&claims); err != nil {
 		oidcFail(w, r, "token", err)
 		return
 	}
-	// Only a verified, plain-ASCII email on the allowlist signs in. A missing
-	// email_verified claim counts as unverified, and non-ASCII is refused before case
-	// folding so a lookalike (for example U+212A KELVIN SIGN) cannot fold into a match.
-	email := strings.TrimSpace(claims.Email)
-	if email == "" || !isASCII(email) || claims.EmailVerified == nil || !*claims.EmailVerified ||
-		!c.cfg.allowed[strings.ToLower(email)] {
-		oidcFail(w, r, "forbidden", errors.New("email not allowed or not verified: "+email))
+	email, _ := claims["email"].(string)
+	if !hasRole(claims[c.cfg.rolesClaim], c.cfg.requiredRole) {
+		oidcFail(w, r, "forbidden", fmt.Errorf("role %q not granted to sub %q (%s)", c.cfg.requiredRole, idt.Subject, email))
 		return
 	}
-	email = strings.ToLower(email)
 	hash, err := s.sessionHash()
 	if err != nil {
 		oidcFail(w, r, "unavailable", err)
@@ -300,6 +288,22 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	noStore(w)
 	setFlowCookie(w, "", -1)
-	log.Printf("[auth] sso sign-in: %q (client=%s)", email, clientLogID(r))
+	log.Printf("[auth] sso sign-in: sub %q %q (client=%s)", idt.Subject, email, clientLogID(r))
 	http.Redirect(w, r, "/login#token="+url.QueryEscape(session), http.StatusFound)
+}
+
+// hasRole reports whether the roles claim (a JSON array of strings, or one string)
+// contains role exactly.
+func hasRole(claim any, role string) bool {
+	switch v := claim.(type) {
+	case string:
+		return v == role
+	case []any:
+		for _, x := range v {
+			if x == role {
+				return true
+			}
+		}
+	}
+	return false
 }
