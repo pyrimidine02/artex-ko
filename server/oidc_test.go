@@ -141,6 +141,8 @@ func TestOIDCRejects(t *testing.T) {
 	}{
 		{"email not on allowlist", func(f *fakeIdP) { f.email = "intruder@example.com" }, nil, true, "forbidden"},
 		{"email not verified", func(f *fakeIdP) { f.emailVerified = false }, nil, true, "forbidden"},
+		{"email_verified claim missing", func(f *fakeIdP) { f.emailVerified = nil }, nil, true, "forbidden"},
+		{"non-ASCII lookalike", func(f *fakeIdP) { f.email = "ops@norane\u212Ao.cc" }, nil, true, "forbidden"},
 		{"state mismatch", nil, func(string) string { return "other" }, true, "state"},
 		{"no flow cookie", nil, nil, false, "state"},
 		{"wrong nonce", func(f *fakeIdP) { f.nonce = "replayed" }, nil, true, "token"},
@@ -179,7 +181,7 @@ func TestOIDCFailsClosedWithoutConfig(t *testing.T) {
 func TestPasswordRoutesAreGone(t *testing.T) {
 	s := oidcTestServer(t, "")
 	h := s.Handler()
-	for _, p := range []string{"/api/auth/login", "/api/auth/init", "/api/auth/change-password"} {
+	for _, p := range []string{"/api/auth/login", "/api/auth/init", "/api/auth/change-password", "/api/auth/status"} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("POST", p, strings.NewReader(`{"username":"ARTEX","password":"x"}`)))
 		if w.Code == http.StatusOK {

@@ -763,8 +763,8 @@ func (s *Server) Handler() http.Handler {
 
 	// Auth routes — exempt from JWT check (handled in requireAuth). This deployment
 	// signs in only through the platform SSO (oidc.go); the password routes
-	// (init, login, change-password) are deliberately not registered.
-	mux.HandleFunc("GET /api/auth/status", s.authStatus)
+	// (init, login, change-password) and the first-run status probe are deliberately
+	// not registered.
 	mux.HandleFunc("GET /api/auth/oidc/start", s.oidcStart)
 	mux.HandleFunc("GET /api/auth/oidc/callback", s.oidcCallback)
 

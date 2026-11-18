@@ -19,6 +19,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -28,6 +29,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 )
 
@@ -82,9 +84,12 @@ func getOIDCClient(ctx context.Context) (*oidcClient, error) {
 		return nil, err
 	}
 	if oidcCached != nil && oidcCached.cfg.issuer == cfg.issuer && oidcCached.cfg.clientID == cfg.clientID {
-		oidcCached.cfg = cfg // allowlist and secret may change without a new discovery
-		oidcCached.oauth.ClientSecret = cfg.clientSecret
-		return oidcCached, nil
+		// A copy per call: the allowlist and secret may change without a new discovery,
+		// and handlers keep using their copy after the lock is released.
+		c := *oidcCached
+		c.cfg = cfg
+		c.oauth.ClientSecret = cfg.clientSecret
+		return &c, nil
 	}
 	p, err := oidc.NewProvider(ctx, cfg.issuer)
 	if err != nil {
@@ -101,7 +106,48 @@ func getOIDCClient(ctx context.Context) (*oidcClient, error) {
 		},
 		verifier: p.Verifier(&oidc.Config{ClientID: cfg.clientID}),
 	}
-	return oidcCached, nil
+	c := *oidcCached
+	return &c, nil
+}
+
+// sessionHash returns the stored hash that the session signing key is bound to
+// (signingKey). With SSO only, no password is ever set, so on first sign-in a random
+// one is stored: revoking every session then means overwriting it
+// (reset-password.sh or a direct settings edit), as before. Without a database
+// (tests) the raw key is used.
+func (s *Server) sessionHash() (string, error) {
+	hash, err := s.cachedPassHash()
+	if err != nil || hash != "" || s.m == nil || s.m.pg == nil {
+		return hash, err
+	}
+	secret, err := randomToken(32)
+	if err != nil {
+		return "", err
+	}
+	h, err := bcrypt.GenerateFromPassword([]byte(secret), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	if _, err := s.m.pg.InsertSettingIfAbsent(authPassKey, string(h)); err != nil {
+		return "", err
+	}
+	return s.reloadPassHash()
+}
+
+func isASCII(v string) bool {
+	for i := 0; i < len(v); i++ {
+		if v[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+// noStore keeps auth redirects (one carries the session token) out of caches and
+// Referer headers.
+func noStore(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
 }
 
 // oidcFlow is the per-attempt state kept in a short-lived HttpOnly cookie, signed
@@ -151,7 +197,8 @@ func setFlowCookie(w http.ResponseWriter, value string, maxAge int) {
 // oidcFail sends the browser back to the login page with a short reason code the
 // page turns into a message. Details go to the server log only.
 func oidcFail(w http.ResponseWriter, r *http.Request, code string, err error) {
-	log.Printf("[auth] sso sign-in failed: %s: %v (client=%s)", code, err, clientLogID(r))
+	log.Printf("[auth] sso sign-in failed: %s: %q (client=%s)", code, fmt.Sprint(err), clientLogID(r))
+	noStore(w)
 	setFlowCookie(w, "", -1)
 	http.Redirect(w, r, "/login?sso_error="+url.QueryEscape(code), http.StatusFound)
 }
@@ -177,6 +224,7 @@ func (s *Server) oidcStart(w http.ResponseWriter, r *http.Request) {
 		oidcFail(w, r, "unavailable", err)
 		return
 	}
+	noStore(w)
 	setFlowCookie(w, v, int(oidcCookieTTL.Seconds()))
 	http.Redirect(w, r, c.oauth.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(f.Verifier)), http.StatusFound)
 }
@@ -230,12 +278,17 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		oidcFail(w, r, "token", err)
 		return
 	}
-	email := strings.ToLower(strings.TrimSpace(claims.Email))
-	if email == "" || (claims.EmailVerified != nil && !*claims.EmailVerified) || !c.cfg.allowed[email] {
+	// Only a verified, plain-ASCII email on the allowlist signs in. A missing
+	// email_verified claim counts as unverified, and non-ASCII is refused before case
+	// folding so a lookalike (for example U+212A KELVIN SIGN) cannot fold into a match.
+	email := strings.TrimSpace(claims.Email)
+	if email == "" || !isASCII(email) || claims.EmailVerified == nil || !*claims.EmailVerified ||
+		!c.cfg.allowed[strings.ToLower(email)] {
 		oidcFail(w, r, "forbidden", errors.New("email not allowed or not verified: "+email))
 		return
 	}
-	hash, err := s.cachedPassHash()
+	email = strings.ToLower(email)
+	hash, err := s.sessionHash()
 	if err != nil {
 		oidcFail(w, r, "unavailable", err)
 		return
@@ -245,7 +298,8 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		oidcFail(w, r, "unavailable", err)
 		return
 	}
+	noStore(w)
 	setFlowCookie(w, "", -1)
-	log.Printf("[auth] sso sign-in: %s (client=%s)", email, clientLogID(r))
+	log.Printf("[auth] sso sign-in: %q (client=%s)", email, clientLogID(r))
 	http.Redirect(w, r, "/login#token="+url.QueryEscape(session), http.StatusFound)
 }
