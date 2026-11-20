@@ -24,7 +24,7 @@ import (
 const (
 	jwtKeyFilename = "jwt.key"
 	authPassKey    = "auth.password_hash"
-	jwtTTL         = 7 * 24 * time.Hour
+	jwtTTL         = 12 * time.Hour // SSO re-sign-in is silent while the provider session lives
 	keyChars       = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 	// setupTokenEnv pins the first-run setup token to a known value (headless /
@@ -116,7 +116,7 @@ func randomToken(n int) (string, error) {
 	return string(buf), nil
 }
 
-// signJWT issues a 7-day HS256 token for user ARTEX.
+// signJWT issues a 12-hour HS256 token for user ARTEX.
 func signJWT(key []byte) (string, error) {
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
 		Subject:   "ARTEX",
