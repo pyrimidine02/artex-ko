@@ -27,6 +27,12 @@ env:
   ARTEX_LANG: ko
   ARTEX_KEY_DIR: /app/state
   ARTEX_DATA_DIR: /app/state/data
+  # Sign-in only through the platform SSO (Hydra client artex); ARTEX_OIDC_CLIENT_SECRET comes from artex-runtime.
+  # Any listed tier admits; member stays until the SSO role rename (user/developer/admin) has migrated the grants.
+  ARTEX_OIDC_ISSUER: https://sso.noraneko.cc/
+  ARTEX_OIDC_CLIENT_ID: artex
+  ARTEX_OIDC_REDIRECT_URL: https://artex.noraneko.cc/api/auth/oidc/callback
+  ARTEX_OIDC_REQUIRED_ROLE: member,user,developer,admin
 envFrom:
 - secretRef:
     name: artex-runtime

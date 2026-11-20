@@ -170,6 +170,26 @@ func TestOIDCRejects(t *testing.T) {
 	}
 }
 
+func TestHasRoleAnyOf(t *testing.T) {
+	cases := []struct {
+		claim any
+		roles string
+		want  bool
+	}{
+		{[]any{"developer"}, "user,developer,admin", true},
+		{[]any{"admin"}, "user, developer, admin", true},
+		{"user", "user,developer", true},
+		{[]any{"viewer"}, "user,developer,admin", false},
+		{[]any{""}, "user,,admin", false},
+		{nil, "user", false},
+	}
+	for _, tc := range cases {
+		if got := hasRole(tc.claim, tc.roles); got != tc.want {
+			t.Errorf("hasRole(%v, %q) = %v, want %v", tc.claim, tc.roles, got, tc.want)
+		}
+	}
+}
+
 func TestOIDCFailsClosedWithoutConfig(t *testing.T) {
 	s := oidcTestServer(t, "")
 	w := httptest.NewRecorder()

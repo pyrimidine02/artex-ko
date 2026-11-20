@@ -10,7 +10,7 @@ package server
 //   ARTEX_OIDC_CLIENT_ID
 //   ARTEX_OIDC_CLIENT_SECRET
 //   ARTEX_OIDC_REDIRECT_URL    e.g. https://artex.noraneko.cc/api/auth/oidc/callback
-//   ARTEX_OIDC_REQUIRED_ROLE   role the SSO must grant, e.g. artex
+//   ARTEX_OIDC_REQUIRED_ROLE   roles the SSO may grant, comma-separated, any one admits, e.g. user,developer,admin
 //   ARTEX_OIDC_ROLES_CLAIM     ID token claim holding the roles (default "roles")
 //
 // Who may sign in is managed in the SSO, not here: the provider puts the user's
@@ -293,15 +293,24 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 // hasRole reports whether the roles claim (a JSON array of strings, or one string)
-// contains role exactly.
-func hasRole(claim any, role string) bool {
-	switch v := claim.(type) {
-	case string:
-		return v == role
-	case []any:
-		for _, x := range v {
-			if x == role {
+// contains one of the comma-separated roles exactly. The SSO puts only the held tier
+// in the token (admin does not imply user), so every admitted tier is listed.
+func hasRole(claim any, roles string) bool {
+	for _, role := range strings.Split(roles, ",") {
+		role = strings.TrimSpace(role)
+		if role == "" {
+			continue
+		}
+		switch v := claim.(type) {
+		case string:
+			if v == role {
 				return true
+			}
+		case []any:
+			for _, x := range v {
+				if x == role {
+					return true
+				}
 			}
 		}
 	}
