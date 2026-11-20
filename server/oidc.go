@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 )
@@ -105,7 +106,7 @@ func getOIDCClient(ctx context.Context) (*oidcClient, error) {
 			ClientSecret: cfg.clientSecret,
 			RedirectURL:  cfg.redirectURL,
 			Endpoint:     p.Endpoint(),
-			Scopes:       []string{oidc.ScopeOpenID, "email", "roles"},
+			Scopes:       []string{oidc.ScopeOpenID, "email", "profile", "roles"},
 		},
 		verifier: p.Verifier(&oidc.Config{ClientID: cfg.clientID}),
 	}
@@ -281,7 +282,9 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		oidcFail(w, r, "unavailable", err)
 		return
 	}
-	session, err := signJWT(s.signingKey(hash))
+	name, _ := claims["name"].(string)
+	picture, _ := claims["picture"].(string)
+	session, err := signSessionJWT(s.signingKey(hash), email, name, picture)
 	if err != nil {
 		oidcFail(w, r, "unavailable", err)
 		return
@@ -290,6 +293,20 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	setFlowCookie(w, "", -1)
 	log.Printf("[auth] sso sign-in: sub %q %q (client=%s)", idt.Subject, email, clientLogID(r))
 	http.Redirect(w, r, "/login#token="+url.QueryEscape(session), http.StatusFound)
+}
+
+// signSessionJWT is signJWT plus the SSO profile, which the web client shows in the
+// sidebar (it reads the payload unverified, for display only). The picture is kept
+// only as an https URL; the SSO serves it from the public profile bucket.
+func signSessionJWT(key []byte, email, name, picture string) (string, error) {
+	now := time.Now()
+	c := jwt.MapClaims{"sub": "ARTEX", "iat": now.Unix(), "exp": now.Add(jwtTTL).Unix()}
+	for k, v := range map[string]string{"email": email, "name": name, "picture": picture} {
+		if v != "" && (k != "picture" || strings.HasPrefix(v, "https://")) {
+			c[k] = v
+		}
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString(key)
 }
 
 // hasRole reports whether the roles claim (a JSON array of strings, or one string)
