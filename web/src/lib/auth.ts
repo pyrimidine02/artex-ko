@@ -40,7 +40,14 @@ export const auth = {
       const payload = JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0))));
       const username: string = payload.sub ?? "ARTEX";
       const email: string = payload.email ?? "";
-      return { id: "1", name: payload.name || email || username, username, email, avatar: payload.picture ?? "", role: "operator" };
+      return {
+        id: "1",
+        name: payload.name || email || username,
+        username,
+        email,
+        avatar: payload.picture ?? "",
+        role: "operator",
+      };
     } catch {
       return null;
     }
