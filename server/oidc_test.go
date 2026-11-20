@@ -23,7 +23,8 @@ type fakeIdP struct {
 	srv          *httptest.Server
 	key          *rsa.PrivateKey
 	nonce, chall string
-	email        string
+	email, name  string
+	picture      string
 	roles        any
 }
 
@@ -33,7 +34,7 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fakeIdP{key: k, email: "ops@noraneko.cc", roles: []string{"viewer", "artex"}}
+	f := &fakeIdP{key: k, email: "ops@noraneko.cc", name: "노라 운영", picture: "https://objectstorage.example/p/a.webp", roles: []string{"viewer", "artex"}}
 	mux := http.NewServeMux()
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
@@ -60,7 +61,7 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 		}
 		claims := jwt.MapClaims{
 			"iss": f.srv.URL, "aud": "artex", "sub": "user-1", "nonce": f.nonce,
-			"email": f.email, "roles": f.roles,
+			"email": f.email, "name": f.name, "picture": f.picture, "roles": f.roles,
 			"iat": time.Now().Unix(), "exp": time.Now().Add(time.Hour).Unix(),
 		}
 		tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
@@ -129,6 +130,30 @@ func TestOIDCSignInIssuesSession(t *testing.T) {
 	tok, _ := url.QueryUnescape(strings.TrimPrefix(loc, "/login#token="))
 	if !s.verifyToken(tok) {
 		t.Fatal("issued session token does not verify")
+	}
+	claims := jwt.MapClaims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(tok, claims); err != nil {
+		t.Fatal(err)
+	}
+	if claims["sub"] != "ARTEX" || claims["email"] != f.email || claims["name"] != f.name || claims["picture"] != f.picture {
+		t.Fatalf("session profile claims = %v", claims)
+	}
+}
+
+func TestSessionJWTDropsNonHTTPSPicture(t *testing.T) {
+	tok, err := signSessionJWT([]byte(strings.Repeat("k", 32)), "a@b.c", "", "javascript:alert(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims := jwt.MapClaims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(tok, claims); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := claims["picture"]; ok {
+		t.Fatalf("non-https picture kept: %v", claims)
+	}
+	if _, ok := claims["name"]; ok {
+		t.Fatalf("empty name kept: %v", claims)
 	}
 }
 
